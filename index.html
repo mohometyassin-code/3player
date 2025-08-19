@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Treasure Island Adventure - 3 Players</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    html, body { margin:0; padding:0; width:100vw; height:100vh; background:#b3e5fc; overflow:hidden;}
+    #gameCanvas { display:block; margin:0 auto; background:linear-gradient(#b3e5fc 80%, #ffe082 100%);}
+    #status { position:absolute; top:10px; left:50%; transform:translateX(-50%); font-size:1.1em; color:#333;
+      font-family:'Comic Sans MS',cursive; z-index:10; text-shadow:1px 1px 6px #fff; background:#fff9; padding:6px 16px; border-radius:10px;}
+    #msg { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:2em; color:#8d6e63;
+      background:#fff9; padding:16px 30px; border-radius:16px; box-shadow:0 2px 10px #9994; display:none; }
+    .mobile-controls { position:fixed; left:0; right:0; bottom:0; z-index:99; display:flex; justify-content:space-between; }
+    .controls-block { flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; padding:7px 0;}
+    .mobile-btn { background:#29b6f6; color:#fff; font-size:1.6em; border:none; border-radius:40px; width:54px; height:54px;
+      margin:0 6px; box-shadow:0 2px 8px #9993; font-family:sans-serif; }
+    .mobile-btn:active { background:#0288d1; }
+    .player-label { font-size:0.98em; color:#333; margin-bottom:2px; }
+    .heart { color:#ff4081; text-shadow:1px 1px 3px #fff; font-size:1.1em; }
+    .dead { color:#aaa; text-decoration:line-through; }
+    .top-controls { position:fixed; left:50%; transform:translateX(-50%); top:56px; z-index:99; display:flex; flex-direction:column; align-items:center;}
+    #timer { position:absolute; top:10px; right:16px; font-size:1.2em; background:#fff9; border-radius:10px; padding:5px 15px; color:#333;}
+    #score { position:absolute; top:10px; left:16px; font-size:1.2em; background:#fff9; border-radius:10px; padding:5px 15px; color:#333;}
+    @media (max-width:600px) {
+      #gameCanvas { width:100vw!important; height:62vw!important; }
+      .mobile-btn { font-size:1.2em; width:40px; height:40px;}
+      #status { font-size:.97em;}
+      .top-controls { top:36px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="status"></div>
+  <div id="timer"></div>
+  <div id="score"></div>
+  <div id="msg"></div>
+  <canvas id="gameCanvas" width="520" height="340"></canvas>
+  <!-- Aisho controls at the top -->
+  <div class="top-controls">
+    <div class="controls-block">
+      <div class="player-label">Aisho</div>
+      <div style="display:flex;gap:4px;">
+        <button class="mobile-btn" id="btn-aisho-left">←</button>
+        <button class="mobile-btn" id="btn-aisho-jump">⬆</button>
+        <button class="mobile-btn" id="btn-aisho-right">→</button>
+      </div>
+    </div>
+  </div>
+  <!-- Mohomed bottom left, Abdicassis bottom right -->
+  <div class="mobile-controls">
+    <div class="controls-block" style="align-items:flex-start;">
+      <div class="player-label">Mohomed</div>
+      <button class="mobile-btn" id="btn-mohomed-left">←</button>
+      <button class="mobile-btn" id="btn-mohomed-jump">⬆</button>
+      <button class="mobile-btn" id="btn-mohomed-right">→</button>
+    </div>
+    <div class="controls-block" style="align-items:flex-end;">
+      <div class="player-label">Abdicassis</div>
+      <button class="mobile-btn" id="btn-abdicassis-left">←</button>
+      <button class="mobile-btn" id="btn-abdicassis-jump">⬆</button>
+      <button class="mobile-btn" id="btn-abdicassis-right">→</button>
+    </div>
+  </div>
+  <script>
+    // Set up
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusDiv = document.getElementById('status');
+    const msgDiv = document.getElementById('msg');
+    const timerDiv = document.getElementById('timer');
+    const scoreDiv = document.getElementById('score');
+    const W = canvas.width, H = canvas.height;
+    let started = false, frame = 0, timer = 60, gameOver = false, score = 0;
+
+    // Players
+    const players = [
+      { name: "Aisho", color: "#9575cd", x: W/2, y: 60, vy: 0, hearts: 3, alive: true, jumpReady:true },
+      { name: "Mohomed", color: "#81d4fa", x: W/5, y: H-50, vy: 0, hearts: 3, alive: true, jumpReady:true },
+      { name: "Abdicassis", color: "#ffb74d", x: 4*W/5, y: H-50, vy: 0, hearts: 3, alive: true, jumpReady:true }
+    ];
+
+    // Treasures and obstacles
+    let treasures = [];
+    let obstacles = [];
+
+    function drawPlayer(p) {
+      if(!p.alive) return;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      // Shadow
+      ctx.globalAlpha=0.18;
+      ctx.beginPath(); ctx.ellipse(0,18,16,6,0,0,2*Math.PI); ctx.fillStyle="#333"; ctx.fill();
+      ctx.globalAlpha=1;
+      // Body (rect)
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-11, 10, 22, 22);
+      // Head
+      ctx.beginPath();
+      ctx.arc(0,0,14,0,2*Math.PI);
+      ctx.fillStyle = p.name==="Aisho" ? "#9e724a" : "#ffe082";
+      ctx.fill();
+      // hijab/cap
+      if(p.name==="Aisho") {
+        ctx.beginPath();
+        ctx.arc(0,0,14,Math.PI*0.2,Math.PI*1.8);
+        ctx.lineWidth=4; ctx.strokeStyle="#6a1b9a"; ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(0,-6,8,Math.PI,0);
+        ctx.fillStyle = p.color; ctx.fill();
+      }
+      // Eyes
+      ctx.beginPath();
+      ctx.arc(-5,-2,1.7,0,2*Math.PI);
+      ctx.arc(5,-2,1.7,0,2*Math.PI);
+      ctx.fillStyle="#222"; ctx.fill();
+      // Smile
+      ctx.beginPath();
+      ctx.arc(0,5,6,Math.PI*0.15,Math.PI*0.85);
+      ctx.lineWidth=2;
+      ctx.strokeStyle="#5d4037"; ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawTreasure(t) {
+      ctx.save();
+      ctx.translate(t.x, t.y);
+      if(t.kind==="coin") {
+        ctx.beginPath(); ctx.arc(0,0,10,0,2*Math.PI);
+        ctx.fillStyle="#ffd600"; ctx.strokeStyle="#ffab00"; ctx.lineWidth=3; ctx.fill(); ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(0,-11); ctx.lineTo(10,11); ctx.lineTo(-10,11); ctx.closePath();
+        ctx.fillStyle="#00bfae"; ctx.strokeStyle="#00796b"; ctx.lineWidth=3; ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawObstacle(o) {
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      if(o.kind==="rock") {
+        ctx.beginPath();
+        ctx.ellipse(0,0,13,10,0,0,2*Math.PI);
+        ctx.fillStyle="#8d6e63"; ctx.strokeStyle="#4e342e"; ctx.lineWidth=2;
+        ctx.fill(); ctx.stroke();
+      } else {
+        // Crab
+        ctx.beginPath();
+        ctx.arc(0,0,10,0,Math.PI,true);
+        ctx.fillStyle="#d84315"; ctx.fill();
+        ctx.beginPath();
+        ctx.arc(-6,0,2,0,2*Math.PI); ctx.arc(6,0,2,0,2*Math.PI);
+        ctx.fillStyle="#6d4c41"; ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function updateStatus() {
+      let html = '';
+      for(const p of players) {
+        html += `<span class="${p.alive?'':'dead'}">${p.name}: <span class="heart">${"❤️".repeat(p.hearts)+"♡".repeat(3-p.hearts)}</span></span> &nbsp; `;
+      }
+      statusDiv.innerHTML = html;
+    }
+
+    function spawnTreasure() {
+      let kind = Math.random()<0.7?"coin":"gem";
+      let x = 40+Math.random()*(W-80), y = -20;
+      treasures.push({kind, x, y});
+    }
+    function spawnObstacle() {
+      let kind = Math.random()<0.6?"rock":"crab";
+      let x = 40+Math.random()*(W-80), y = -20;
+      obstacles.push({kind, x, y});
+    }
+
+    function loop() {
+      if(!started) return;
+      if(gameOver) return;
+      frame++;
+      // Background
+      ctx.fillStyle="#b3e5fc"; ctx.fillRect(0,0,W,H);
+      // "Sand"
+      ctx.fillStyle="#ffe082"; ctx.fillRect(0,H-30,W,30);
+
+      // Move and draw treasures/obstacles
+      treasures.forEach(t=>{ t.y+=2.7; drawTreasure(t); });
+      obstacles.forEach(o=>{ o.y+=3.2; drawObstacle(o); });
+
+      // Remove offscreen
+      treasures = treasures.filter(t=>t.y<H+30);
+      obstacles = obstacles.filter(o=>o.y<H+30);
+
+      // Draw players, move gravity/jump
+      for(const p of players) {
+        if(!p.alive) continue;
+        p.y += p.vy;
+        if(p.y<H-40) p.vy += 0.5; // gravity
+        else { p.y = H-40; p.vy=0; p.jumpReady=true; } // on ground
+        drawPlayer(p);
+      }
+
+      // Collisions with treasures
+      for(const p of players) {
+        if(!p.alive) continue;
+        for(const t of treasures) {
+          if(Math.abs(p.x-t.x)<18 && Math.abs(p.y-t.y)<18) {
+            t.y = H+99; // remove
+            score += t.kind==="coin"?1:3;
+          }
+        }
+      }
+      // Collisions with obstacles
+      for(const p of players) {
+        if(!p.alive) continue;
+        for(const o of obstacles) {
+          if(Math.abs(p.x-o.x)<20 && Math.abs(p.y-o.y)<18) {
+            o.y = H+99; // remove
+            p.hearts--;
+            if(p.hearts<=0) { p.alive=false; showDeathMsg(p.name); }
+            updateStatus();
+          }
+        }
+      }
+
+      // Victory
+      if(players.filter(p=>p.alive).length===0) {
+        endGame();
+        return;
+      }
+
+      // Spawn treasures/obstacles
+      if(frame%40===0) spawnTreasure();
+      if(frame%65===0) spawnObstacle();
+
+      // Timer
+      if(frame%60===0 && timer>0) timer--;
+      timerDiv.textContent = "Time: " + timer+"s";
+      scoreDiv.textContent = "Score: " + score;
+      if(timer<=0) { endGame(); return; }
+
+      updateStatus();
+      requestAnimationFrame(loop);
+    }
+
+    function endGame() {
+      gameOver = true;
+      let msg = "Time's up!<br>Team score: <b>"+score+"</b><br>";
+      if(players.filter(p=>p.alive).length>0) msg += "Victory dance! 🎉";
+      else msg += "Better luck next time!";
+      msgDiv.innerHTML = msg+'<br><button onclick="location.reload()">Play Again</button>';
+      msgDiv.style.display='block';
+    }
+
+    function showDeathMsg(name) {
+      msgDiv.innerHTML = `${name} is out! The rest keep searching for treasure!`;
+      msgDiv.style.display = "block";
+      setTimeout(()=>{msgDiv.style.display="none";}, 1000);
+    }
+
+    // MOBILE BUTTON CONTROLS (all are responsive for both touch and mouse)
+    function movePlayer(idx, dir) {
+      if(!players[idx].alive) return;
+      players[idx].x = Math.max(25, Math.min(W-25, players[idx].x + (dir === "left" ? -22 : 22)));
+    }
+    function jumpPlayer(idx) {
+      if(!players[idx].alive) return;
+      if(players[idx].jumpReady) {
+        players[idx].vy = -9.2;
+        players[idx].jumpReady = false;
+      }
+    }
+    // Touch and click for all buttons
+    ["touchstart","mousedown"].forEach(evt=>{
+      document.getElementById("btn-aisho-left").addEventListener(evt,e=>{e.preventDefault();movePlayer(0,"left");});
+      document.getElementById("btn-aisho-right").addEventListener(evt,e=>{e.preventDefault();movePlayer(0,"right");});
+      document.getElementById("btn-aisho-jump").addEventListener(evt,e=>{e.preventDefault();jumpPlayer(0);});
+
+      document.getElementById("btn-mohomed-left").addEventListener(evt,e=>{e.preventDefault();movePlayer(1,"left");});
+      document.getElementById("btn-mohomed-right").addEventListener(evt,e=>{e.preventDefault();movePlayer(1,"right");});
+      document.getElementById("btn-mohomed-jump").addEventListener(evt,e=>{e.preventDefault();jumpPlayer(1);});
+
+      document.getElementById("btn-abdicassis-left").addEventListener(evt,e=>{e.preventDefault();movePlayer(2,"left");});
+      document.getElementById("btn-abdicassis-right").addEventListener(evt,e=>{e.preventDefault();movePlayer(2,"right");});
+      document.getElementById("btn-abdicassis-jump").addEventListener(evt,e=>{e.preventDefault();jumpPlayer(2);});
+    });
+
+    // Instructions and real start
+    msgDiv.innerHTML = `
+      <b>Treasure Island Adventure</b><br>
+      <span style="font-size:1em;">Each player has their own buttons.<br>
+      Collect as much treasure as you can!<br>
+      If one is out, the others keep playing.<br>
+      Avoid crabs and rocks!</span><br>
+      <button id="startBtn">Start Mission</button>
+    `;
+    msgDiv.style.display="block";
+    function startGame(){
+      msgDiv.style.display="none";
+      if(!started) { started=true; loop(); }
+    }
+    setTimeout(()=>{
+      let btn = document.getElementById('startBtn');
+      if(btn) btn.onclick = startGame;
+    }, 100);
+
+    updateStatus();
+    scoreDiv.textContent = "Score: 0";
+    timerDiv.textContent = "Time: 60s";
+  </script>
+</body>
+</html>
